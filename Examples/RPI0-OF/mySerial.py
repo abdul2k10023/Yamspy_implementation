@@ -5,6 +5,9 @@ import numpy as np
 from multiprocessing import Process, Pipe
 from yamspy import MSPy
 import os
+import threading
+
+
 
 DEBUG = True
 board = None
@@ -27,7 +30,7 @@ CMDS_init = {
         'aux1':     1000, # DISARMED (1000) / ARMED (1800)
         'aux2':     1000, # ANGLE (1000) / HORIZON (1500) / FLIP (1800)
         'aux3':     1000, # FAILSAFE (1800)
-        'aux4':     1000  # HEADFREE (1800)
+        'aux4':     1000  # MSP_OVERRIDE (1800)
         }
 
 CMDS = CMDS_init.copy()
@@ -40,9 +43,15 @@ CMDS_ORDER = ['roll', 'pitch', 'throttle', 'yaw', 'aux1', 'aux2', 'aux3', 'aux4'
 shutdown = False
 fc_reboot = False
 
+def signal_handler(signal, frame):
+
+    index=input("enter key: ")
+    value=input("enter value: ")
+    CMDS[index]=int(value)
+
 try:
     while not shutdown:
-        with MSPy(device="/dev/ttyACM0", loglevel='WARNING', baudrate=500000) as board:
+        with MSPy(device="/dev/ttyS0", loglevel='WARNING', baudrate=115200) as board:
             if board == 1: # an error occurred...
                 print("Not connected to the FC...")              
                 continue
@@ -50,14 +59,18 @@ try:
                 try:
                     prev_time = time.time()
                     while not shutdown:
+                        signal.signal(signal.SIGINT, signal_handler)
                         CMDS_RC = [CMDS[ki] for ki in CMDS_ORDER]
+                        # index = input("Enter Index:")
+                        signal.signal(signal.SIGINT, signal_handler)
+
 
                         #if board.send_RAW_RC(CMDS_RC):
                         #    dataHandler = board.receive_msg()
                         #    print(dataHandler)
                         #    #board.process_recv_data(dataHandler)
                         
-                        # board.fast_msp_rc_cmd(CMDS_RC)
+                        board.fast_msp_rc_cmd(CMDS_RC)
                         board.fast_read_analog()
                         # board.fast_read_attitude()
                         board.fast_read_imu()
@@ -65,18 +78,20 @@ try:
                         accelerometer = board.SENSOR_DATA['accelerometer']
                         gyroscope = board.SENSOR_DATA['gyroscope']
                         voltage = board.ANALOG['voltage']
-                        # attitude = board.SENSOR_DATA['kinematics']
 
-                        print(accelerometer)
-                        print(gyroscope)
+                        if board.send_RAW_msg(MSPy.MSPCodes['MSP_ARMING_CONFIG'], data=[]):
+                           dataHandler = board.receive_msg()
+                           board.process_recv_data(dataHandler)
+                           flags = board.CONFIG['armingDisableFlags']
+                           flagnames = board.process_armingDisableFlags(flags)
+
+
+                        # print(accelerometer)
+                        # print(gyroscope)
                         # print(attitude)
-                        print(voltage)
-
-                        #if board.send_RAW_msg(MSPy.MSPCodes['MSP_RAW_IMU'], data=[]):
-                        #    dataHandler = board.receive_msg()
-                        #    board.process_recv_data(dataHandler)
-                        #    accelerometer = board.SENSOR_DATA['accelerometer']
-                        #    gyroscope = board.SENSOR_DATA['gyroscope']  
+                        # print(voltage)
+                        print(flagnames)
+                        print(CMDS_RC)
                         
                         #if board.send_RAW_msg(MSPy.MSPCodes['MSP_ANALOG'], data=[]):
                         #    dataHandler = board.receive_msg()
@@ -90,3 +105,9 @@ try:
                     shutdown = True
 finally:
     print("FINISHED")
+
+
+
+
+    
+    # sys.exit(0)
